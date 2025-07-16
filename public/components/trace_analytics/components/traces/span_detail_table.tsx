@@ -46,15 +46,15 @@ export interface SpanSearchParams {
 const getColumns = (mode: TraceAnalyticsMode): EuiDataGridColumn[] => [
   {
     id: mode === 'jaeger' ? 'spanID' : 'spanId',
-    display: 'Span ID',
+    display: 'Span Id',
   },
   {
     id: mode === 'jaeger' ? 'references' : 'parentSpanId',
-    display: 'Parent span ID',
+    display: 'Parent span Id',
   },
   {
     id: mode === 'jaeger' ? 'traceID' : 'traceId',
-    display: 'Trace ID',
+    display: 'Trace Id',
   },
   ...(mode !== 'jaeger'
     ? [
@@ -229,7 +229,11 @@ export function SpanDetailTable(props: SpanDetailTableProps) {
         spans = applySorting(spans);
       }
 
-      setItems(spans);
+      const start = tableParams.page * tableParams.size;
+      const end = start + tableParams.size;
+      const pageSpans = spans.slice(start, end);
+
+      setItems(pageSpans);
       setTotal(spans.length);
     } catch (error) {
       console.error('Error parsing payloadData in SpanDetailTable:', error);

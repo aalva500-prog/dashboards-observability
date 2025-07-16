@@ -29,6 +29,7 @@ import {
   nanoToMilliSec,
   NoMatchMessage,
   PanelTitle,
+  processTimeStamp,
   renderBenchmark,
 } from '../helper_functions';
 
@@ -171,13 +172,15 @@ describe('Trace analytics helper functions', () => {
   });
 
   describe('getAttributeFieldNames', () => {
-    it("should return only field names starting with 'resource.attributes' or 'span.attributes'", () => {
+    it("should return only field names starting with 'resource.attributes' or 'span.attributes' or 'attributes'", () => {
       const expectedFields = [
         'span.attributes.http@url',
         'span.attributes.net@peer@ip',
         'span.attributes.http@user_agent.keyword',
         'resource.attributes.telemetry@sdk@version.keyword',
         'resource.attributes.host@hostname.keyword',
+        'attributes.url',
+        'attributes.custom_field.keyword',
       ];
       const result = getAttributeFieldNames(fieldCapQueryResponse1);
       expect(result).toEqual(expectedFields);
@@ -227,17 +230,41 @@ describe('Trace analytics helper functions', () => {
     });
 
     it('handles URIs without a hash router', () => {
-      const result = appendModeToTraceViewUri(
-        '123',
-        (id) => `/traces/${id}`,
-        'custom_data_prepper'
-      );
-      expect(result).toEqual('/traces/123?mode=custom_data_prepper');
+      const result = appendModeToTraceViewUri('123', (id) => `/traces/${id}`, 'data_prepper');
+      expect(result).toEqual('/traces/123?mode=data_prepper');
     });
 
     it('handles URIs without a hash router and existing query params', () => {
       const result = appendModeToTraceViewUri('123', (id) => `/traces/${id}?foo=bar`, 'jaeger');
       expect(result).toEqual('/traces/123?foo=bar&mode=jaeger');
+    });
+  });
+
+  describe('processTimeStamp', () => {
+    it('returns microseconds for jaeger mode (start time)', () => {
+      const time = '2024-01-01T00:00:00Z';
+      const expected = Math.floor(new Date(time).getTime() / 1000) * 1000000;
+      expect(processTimeStamp(time, 'jaeger', false)).toEqual(expected);
+    });
+
+    it('returns microseconds for jaeger mode (end time)', () => {
+      const time = '2024-01-01T00:00:00Z';
+      const expected = Math.floor(new Date(time).getTime() / 1000) * 1000000;
+      expect(processTimeStamp(time, 'jaeger', true)).toEqual(expected);
+    });
+
+    it('returns input time for non-jaeger mode', () => {
+      const time = 'now-5m';
+      expect(processTimeStamp(time, 'data_prepper')).toBe(time);
+    });
+
+    it('returns different values for start and end time for now/y, now/M, now/d, now/w in jaeger mode', () => {
+      const formats = ['now/y', 'now/M', 'now/d', 'now/w'];
+      formats.forEach((format) => {
+        const start = processTimeStamp(format, 'jaeger', false);
+        const end = processTimeStamp(format, 'jaeger', true);
+        expect(end).not.toEqual(start);
+      });
     });
   });
 });

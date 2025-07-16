@@ -70,7 +70,7 @@ describe('Dump test data', () => {
 
 describe('Testing dashboard table empty state', () => {
   beforeEach(() => {
-    cy.visit('app/observability-traces#/', {
+    cy.visit('app/observability-traces#/traces', {
       onBeforeLoad: (win) => {
         win.sessionStorage.clear();
       },
@@ -85,7 +85,7 @@ describe('Testing dashboard table empty state', () => {
 
 describe('Testing dashboard table', () => {
   beforeEach(() => {
-    cy.visit('app/observability-traces#/', {
+    cy.visit('app/observability-traces#/traces', {
       onBeforeLoad: (win) => {
         win.sessionStorage.clear();
       },
@@ -121,23 +121,27 @@ describe('Testing dashboard table', () => {
     setTimeFilter(true);
     cy.get('.euiButtonIcon[aria-label="Open popover"]').first().click();
     cy.get('text.ytitle[data-unformatted="Hourly latency (ms)"]').should('exist');
+    cy.get('button[aria-label="Remove filter"]').should('be.visible').first().click();
   });
 
   it('Redirects to traces table with filter', () => {
+    cy.get('[data-test-subj="trace-table-mode-selector"]').click();
+    cy.get('.euiSelectableListItem__content').contains('Traces').click();
     cy.get('.euiLink').contains('13').click();
 
-    cy.contains(' (13)').should('exist');
+    cy.contains('13').should('exist');
     cy.contains('client_create_order').should('exist');
 
     cy.get('.euiSideNavItemButton__label').contains('Trace analytics').click();
 
     cy.contains('client_create_order').should('exist');
+    cy.get('button[aria-label="Remove filter"]').should('be.visible').first().click();
   });
 });
 
 describe('Testing plots', () => {
   beforeEach(() => {
-    cy.visit('app/observability-traces#/', {
+    cy.visit('app/observability-traces#/traces', {
       onBeforeLoad: (win) => {
         win.sessionStorage.clear();
       },
@@ -173,7 +177,7 @@ describe('Testing plots', () => {
 
 describe('Latency by trace group table', () => {
   beforeEach(() => {
-    cy.visit('app/observability-traces#/', {
+    cy.visit('app/observability-traces#/traces', {
       onBeforeLoad: (win) => {
         win.sessionStorage.clear();
       },
@@ -237,7 +241,7 @@ describe('Latency by trace group table', () => {
   });
 
   it('Verify Search engine on Trace dashboard', () => {
-    cy.get('.euiFieldSearch.euiFieldSearch--fullWidth').click().type('client_pay_order');
+    cy.get('[data-test-subj="search-bar-input-box"]').click().type('client_pay_order');
     cy.get('[data-test-subj="superDatePickerApplyTimeButton"]').click();
     cy.get(
       '.euiTableCellContent.euiTableCellContent--alignRight.euiTableCellContent--overflowingContent'
@@ -267,7 +271,7 @@ describe('Latency by trace group table', () => {
 
 describe('Testing filters on trace analytics page', { scrollBehavior: false }, () => {
   beforeEach(() => {
-    cy.visit('app/observability-traces#/', {
+    cy.visit('app/observability-traces#/traces', {
       onBeforeLoad: (win) => {
         win.sessionStorage.clear();
       },
@@ -360,7 +364,7 @@ describe('Dump jaeger test data', () => {
 
 describe('Testing switch mode to jaeger', () => {
   beforeEach(() => {
-    cy.visit('app/observability-traces#/', {
+    cy.visit('app/observability-traces#/traces', {
       onBeforeLoad: (win) => {
         win.sessionStorage.clear();
       },
@@ -372,6 +376,13 @@ describe('Testing switch mode to jaeger', () => {
   });
 
   it('Verifies errors mode columns and data', () => {
+    cy.get('[data-test-subj="search-bar-input-box"]').should('be.visible').clear();
+    cy.get('[data-test-subj="superDatePickerApplyTimeButton"]').should('be.visible').click();
+    cy.get('[data-test-subj="globalLoadingIndicator"]').should('not.exist');
+    cy.reload();
+    cy.get('[data-test-subj="globalLoadingIndicator"]').should('not.exist');
+
+    cy.get('[data-test-subj="trace-groups-service-operation-accordian"]').click();
     cy.contains('redis,GetDriver').should('exist');
     cy.contains('14.7').should('exist');
     cy.contains('100%').should('exist');

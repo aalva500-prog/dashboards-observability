@@ -35,6 +35,7 @@ exports[`Dashboard component renders dashboard 1`] = `
       "getIsVisible$": [MockFunction],
       "globalSearch": Object {
         "getAllSearchCommands": [MockFunction],
+        "unregisterSearchCommand": [MockFunction],
       },
       "logos": Object {
         "AnimatedMark": Object {
@@ -186,7 +187,6 @@ exports[`Dashboard component renders dashboard 1`] = `
       "setIsVisible": [MockFunction],
     }
   }
-  dataPrepperIndicesExist={true}
   dataSourceMDSId={
     Array [
       Object {
@@ -375,12 +375,6 @@ exports[`Dashboard component renders dashboard 1`] = `
         </div>
       </div>
     </EuiPopover>
-    <CustomIndexFlyout
-      isFlyoutVisible={false}
-      setIsFlyoutVisible={[Function]}
-    >
-      <div />
-    </CustomIndexFlyout>
   </DataSourcePicker>
   <DashboardContent
     appConfigs={Array []}
@@ -416,6 +410,7 @@ exports[`Dashboard component renders dashboard 1`] = `
         "getIsVisible$": [MockFunction],
         "globalSearch": Object {
           "getAllSearchCommands": [MockFunction],
+          "unregisterSearchCommand": [MockFunction],
         },
         "logos": Object {
           "AnimatedMark": Object {
@@ -567,7 +562,6 @@ exports[`Dashboard component renders dashboard 1`] = `
         "setIsVisible": [MockFunction],
       }
     }
-    dataPrepperIndicesExist={true}
     dataSourceMDSId={
       Array [
         Object {
@@ -2655,6 +2649,7 @@ exports[`Dashboard component renders empty dashboard 1`] = `
       "getIsVisible$": [MockFunction],
       "globalSearch": Object {
         "getAllSearchCommands": [MockFunction],
+        "unregisterSearchCommand": [MockFunction],
       },
       "logos": Object {
         "AnimatedMark": Object {
@@ -2806,7 +2801,6 @@ exports[`Dashboard component renders empty dashboard 1`] = `
       "setIsVisible": [MockFunction],
     }
   }
-  dataPrepperIndicesExist={true}
   dataSourceMDSId={
     Array [
       Object {
@@ -2994,12 +2988,6 @@ exports[`Dashboard component renders empty dashboard 1`] = `
         </div>
       </div>
     </EuiPopover>
-    <CustomIndexFlyout
-      isFlyoutVisible={false}
-      setIsFlyoutVisible={[Function]}
-    >
-      <div />
-    </CustomIndexFlyout>
   </DataSourcePicker>
   <DashboardContent
     appConfigs={Array []}
@@ -3035,6 +3023,7 @@ exports[`Dashboard component renders empty dashboard 1`] = `
         "getIsVisible$": [MockFunction],
         "globalSearch": Object {
           "getAllSearchCommands": [MockFunction],
+          "unregisterSearchCommand": [MockFunction],
         },
         "logos": Object {
           "AnimatedMark": Object {
@@ -3186,7 +3175,6 @@ exports[`Dashboard component renders empty dashboard 1`] = `
         "setIsVisible": [MockFunction],
       }
     }
-    dataPrepperIndicesExist={true}
     dataSourceMDSId={
       Array [
         Object {
@@ -5273,6 +5261,7 @@ exports[`Dashboard component renders empty jaeger dashboard 1`] = `
       "getIsVisible$": [MockFunction],
       "globalSearch": Object {
         "getAllSearchCommands": [MockFunction],
+        "unregisterSearchCommand": [MockFunction],
       },
       "logos": Object {
         "AnimatedMark": Object {
@@ -5424,7 +5413,6 @@ exports[`Dashboard component renders empty jaeger dashboard 1`] = `
       "setIsVisible": [MockFunction],
     }
   }
-  dataPrepperIndicesExist={false}
   dataSourceMDSId={
     Array [
       Object {
@@ -5614,12 +5602,6 @@ exports[`Dashboard component renders empty jaeger dashboard 1`] = `
         </div>
       </div>
     </EuiPopover>
-    <CustomIndexFlyout
-      isFlyoutVisible={false}
-      setIsFlyoutVisible={[Function]}
-    >
-      <div />
-    </CustomIndexFlyout>
   </DataSourcePicker>
   <DashboardContent
     appConfigs={Array []}
@@ -5655,6 +5637,7 @@ exports[`Dashboard component renders empty jaeger dashboard 1`] = `
         "getIsVisible$": [MockFunction],
         "globalSearch": Object {
           "getAllSearchCommands": [MockFunction],
+          "unregisterSearchCommand": [MockFunction],
         },
         "logos": Object {
           "AnimatedMark": Object {
@@ -5806,7 +5789,6 @@ exports[`Dashboard component renders empty jaeger dashboard 1`] = `
         "setIsVisible": [MockFunction],
       }
     }
-    dataPrepperIndicesExist={false}
     dataSourceMDSId={
       Array [
         Object {

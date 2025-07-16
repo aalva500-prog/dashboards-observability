@@ -34,7 +34,7 @@ export const fetchDynamicColumns = (columnItems: string[]) => {
         </EuiText>
       ),
       align: 'right',
-      sortable: true,
+      sortable: false,
       truncateText: true,
       render: (item) =>
         item ? (
@@ -52,7 +52,6 @@ export const fetchDynamicColumns = (columnItems: string[]) => {
 };
 
 export const getTableColumns = (
-  showAttributes: boolean,
   columnItems: string[],
   mode: TraceAnalyticsMode,
   tracesTableMode: TraceQueryMode,
@@ -133,14 +132,14 @@ export const getTableColumns = (
   const renderDateField = (item: number) =>
     item === 0 || item ? moment(item).format(TRACE_ANALYTICS_DATE_FORMAT) : '-';
 
-  // Columns for custom_data_prepper mode
-  if (mode === 'custom_data_prepper' && tracesTableMode !== 'traces') {
+  // Columns for data_prepper mode
+  if (mode === 'data_prepper' && tracesTableMode !== 'traces') {
     return [
       {
         field: 'spanId',
         name: 'Span Id',
         align: 'left',
-        sortable: true,
+        sortable: false,
         render: renderIdField,
         className: 'span-group-column',
       },
@@ -148,14 +147,14 @@ export const getTableColumns = (
         field: 'traceId',
         name: 'Trace Id',
         align: 'left',
-        sortable: true,
+        sortable: false,
         render: renderTraceLinkField,
       },
       {
         field: 'parentSpanId',
         name: 'Parent Span Id',
         align: 'left',
-        sortable: true,
+        sortable: false,
         render: renderIdField,
         className: 'span-group-column',
       },
@@ -163,7 +162,7 @@ export const getTableColumns = (
         field: 'traceGroup',
         name: 'Trace group',
         align: 'left',
-        sortable: true,
+        sortable: false,
         truncateText: true,
       },
       {
@@ -188,25 +187,25 @@ export const getTableColumns = (
         render: renderDateField,
         className: 'span-group-column',
       },
-      ...(showAttributes ? fetchDynamicColumns(columnItems) : []),
+      ...fetchDynamicColumns(columnItems),
     ] as Array<EuiTableFieldDataColumnType<any>>;
   }
 
-  // Columns for non-jaeger traces mode
-  if (mode !== 'jaeger' && tracesTableMode === 'traces') {
+  // Columns for data_prepper traces mode
+  if (mode === 'data_prepper' && tracesTableMode === 'traces') {
     return [
       {
         field: 'trace_id',
-        name: 'Trace ID',
+        name: 'Trace Id',
         align: 'left',
-        sortable: true,
+        sortable: false,
         render: renderTraceLinkField,
       },
       {
         field: 'trace_group',
         name: 'Trace group',
         align: 'left',
-        sortable: true,
+        sortable: false,
         truncateText: true,
       },
       {
@@ -220,7 +219,7 @@ export const getTableColumns = (
         field: 'percentile_in_trace_group',
         name: 'Percentile in trace group',
         align: 'right',
-        sortable: true,
+        sortable: false,
         render: (item) => (item ? `${round(item, 2)}th` : '-'),
       },
       {
@@ -240,13 +239,13 @@ export const getTableColumns = (
     ] as Array<EuiTableFieldDataColumnType<any>>;
   }
 
-  // Default columns for other modes
+  // Default columns for Jaeger mode
   return [
     {
       field: 'trace_id',
-      name: 'Trace ID',
+      name: 'Trace Id',
       align: 'left',
-      sortable: true,
+      sortable: false,
       render: renderTraceLinkField,
     },
     { field: 'latency', name: 'Latency (ms)', align: 'right', sortable: true },

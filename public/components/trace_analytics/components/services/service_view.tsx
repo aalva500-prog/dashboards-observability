@@ -4,11 +4,9 @@
  */
 /* eslint-disable react-hooks/exhaustive-deps */
 
-import dateMath from '@elastic/datemath';
 import {
   EuiBadge,
-  EuiContextMenu,
-  EuiContextMenuPanelDescriptor,
+  EuiCallOut,
   EuiFlexGroup,
   EuiFlexItem,
   EuiFlyout,
@@ -21,40 +19,36 @@ import {
   EuiPage,
   EuiPageBody,
   EuiPanel,
-  EuiPopover,
-  EuiSmallButton,
+  EuiSmallButtonIcon,
   EuiSpacer,
   EuiText,
+  EuiToolTip,
 } from '@elastic/eui';
+import { i18n } from '@osd/i18n';
 import round from 'lodash/round';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { DataSourceManagementPluginSetup } from '../../../../../../../src/plugins/data_source_management/public';
 import { DataSourceOption } from '../../../../../../../src/plugins/data_source_management/public/components/data_source_menu/types';
-import {
-  DEFAULT_DATA_SOURCE_NAME,
-  DEFAULT_DATA_SOURCE_TYPE,
-} from '../../../../../common/constants/data_sources';
-import {
-  observabilityLogsID,
-  observabilityTracesNewNavID,
-} from '../../../../../common/constants/shared';
-import { TRACE_ANALYTICS_DATE_FORMAT } from '../../../../../common/constants/trace_analytics';
 import { setNavBreadCrumbs } from '../../../../../common/utils/set_nav_bread_crumbs';
 import { coreRefs } from '../../../../framework/core_refs';
 import { HeaderControlledComponentsWrapper } from '../../../../plugin_helpers/plugin_headerControl';
 import { TraceAnalyticsComponentDeps } from '../../home';
-import { handleServiceViewRequest } from '../../requests/services_request_handler';
+import {
+  checkValidServiceName,
+  handleServiceViewRequest,
+} from '../../requests/services_request_handler';
 import { TraceFilter } from '../common/constants';
 import { FilterType } from '../common/filters/filters';
 import {
+  NoMatchMessage,
   PanelTitle,
-  TraceSettings,
   filtersToDsl,
   generateServiceUrl,
   processTimeStamp,
 } from '../common/helper_functions';
 import { ServiceMap, ServiceObject } from '../common/plots/service_map';
+import { redirectToServiceLogs, redirectToServiceTraces } from '../common/redirection_helpers';
 import { SearchBarProps, renderDatePicker } from '../common/search_bar';
 import { SpanDetailFlyout } from '../traces/span_detail_flyout';
 import { SpanDetailTable } from '../traces/span_detail_table';
@@ -78,12 +72,12 @@ export function ServiceView(props: ServiceViewProps) {
     'latency' | 'error_rate' | 'throughput'
   >('latency');
   const [redirect, setRedirect] = useState(false);
-  const [actionsMenuPopover, setActionsMenuPopover] = useState(false);
   const [serviceId, setServiceId] = useState<string | null>(null);
   const location = useLocation();
   const [isServiceOverviewLoading, setIsServiceOverviewLoading] = useState(false);
   const [isServicesDataLoading, setIsServicesDataLoading] = useState(false);
-  const newNavigation = coreRefs.chrome?.navGroup.getNavGroupEnabled();
+  const [serviceIdError, setServiceIdError] = useState(false);
+  const [serviceIdEmpty, setserviceIdEmpty] = useState(false);
 
   useEffect(() => {
     try {
@@ -95,24 +89,63 @@ export function ServiceView(props: ServiceViewProps) {
     }
   }, [location]);
 
+  useEffect(() => {
+    setServiceIdError(false);
+    setserviceIdEmpty(false);
+  }, [props.serviceName]);
+
   const hideSearchBarCheck = page === 'serviceFlyout' || serviceId !== '';
 
-  const refresh = () => {
+  const handleServiceDataResponse = (data: any) => {
+    try {
+      if (!data || Object.keys(data).length === 0) {
+        setserviceIdEmpty(true);
+        setFields({});
+        setServiceMap({});
+      } else {
+        setserviceIdEmpty(false);
+        setFields(data);
+      }
+    } catch (e) {
+      setserviceIdEmpty(true);
+      setFields({});
+      setServiceMap({});
+    }
+  };
+
+  const refresh = async () => {
     const DSL = filtersToDsl(
       mode,
       props.filters,
       props.query,
       processTimeStamp(props.startTime, mode),
-      processTimeStamp(props.endTime, mode)
+      processTimeStamp(props.endTime, mode, true)
     );
 
     setIsServiceOverviewLoading(true);
     setIsServicesDataLoading(true);
+
+    const validService = await checkValidServiceName(
+      props.http,
+      mode,
+      props.serviceName,
+      props.dataSourceMDSId[0].id
+    );
+
+    if (!validService) {
+      setServiceIdError(true);
+      setFields({});
+      setServiceMap({});
+      setIsServiceOverviewLoading(false);
+      setIsServicesDataLoading(false);
+      return;
+    }
+
     handleServiceViewRequest(
       props.serviceName,
       props.http,
       DSL,
-      setFields,
+      handleServiceDataResponse,
       mode,
       setServiceMap,
       props.dataSourceMDSId[0].id
@@ -155,125 +188,73 @@ export function ServiceView(props: ServiceViewProps) {
     else if (setCurrentSelectedService) setCurrentSelectedService(service);
   };
 
-  const redirectToServiceTraces = () => {
-    if (setCurrentSelectedService) setCurrentSelectedService('');
-    setRedirect(true);
-    const filterField =
-      mode === 'data_prepper' || mode === 'custom_data_prepper'
-        ? 'serviceName'
-        : 'process.serviceName';
-    props.addFilter({
-      field: filterField,
-      operator: 'is',
-      value: props.serviceName,
-      inverted: false,
-      disabled: false,
-    });
-
-    const tracesPath = '#/traces';
-    const dataSourceId = props.dataSourceMDSId[0]?.id || '';
-    const urlParts = window.location.href.split('?');
-    const queryParams =
-      urlParts.length > 1 ? new URLSearchParams(urlParts[1]) : new URLSearchParams();
-
-    const modeParam = queryParams.get('mode') || '';
-    const modeQuery = modeParam ? `&mode=${encodeURIComponent(modeParam)}` : '';
-
-    if (newNavigation) {
-      coreRefs.application?.navigateToApp(observabilityTracesNewNavID, {
-        path: `${tracesPath}?datasourceId=${encodeURIComponent(dataSourceId)}${modeQuery}`,
-      });
-    } else {
-      window.location.assign(
-        `${tracesPath}?datasourceId=${encodeURIComponent(dataSourceId)}${modeQuery}`
-      );
-    }
+  const renderServiceActionsMenu = (isFlyout: boolean) => {
+    return (
+      <EuiFlexItem grow={false}>
+        <EuiFlexGroup justifyContent="center" gutterSize="s">
+          <EuiFlexItem
+            grow={false}
+            onClick={() => {
+              if (setCurrentSelectedService) setCurrentSelectedService('');
+              setRedirect(true);
+              redirectToServiceTraces({
+                mode: props.mode,
+                addFilter: props.addFilter,
+                dataSourceMDSId: props.dataSourceMDSId,
+                serviceName: props.serviceName,
+              });
+            }}
+          >
+            <EuiToolTip content="View service traces">
+              <EuiLink data-test-subj={'service-view-traces-redirection-btn'}>
+                <EuiSmallButtonIcon iconType="apmTrace" display="base" />
+              </EuiLink>
+            </EuiToolTip>
+          </EuiFlexItem>
+          {mode === 'data_prepper' && (
+            <>
+              <EuiFlexItem
+                grow={false}
+                onClick={() =>
+                  redirectToServiceLogs({
+                    fromTime: props.startTime,
+                    toTime: props.endTime,
+                    dataSourceMDSId: props.dataSourceMDSId,
+                    serviceName: props.serviceName,
+                  })
+                }
+              >
+                <EuiToolTip content="View service logs">
+                  <EuiLink data-test-subj={'service-view-logs-redirection-btn'}>
+                    <EuiSmallButtonIcon iconType="discoverApp" display="base" />
+                  </EuiLink>
+                </EuiToolTip>
+              </EuiFlexItem>
+              {isFlyout && (
+                <EuiFlexItem
+                  grow={false}
+                  onClick={() => {
+                    redirectToServicePage(props.serviceName);
+                    if (setCurrentSelectedService) setCurrentSelectedService('');
+                  }}
+                >
+                  <EuiToolTip content="View service page">
+                    <EuiLink data-test-subj={'service-view-flyout-action-btn'}>
+                      <EuiSmallButtonIcon iconType="graphApp" display="base" />
+                    </EuiLink>
+                  </EuiToolTip>
+                </EuiFlexItem>
+              )}
+            </>
+          )}
+        </EuiFlexGroup>
+      </EuiFlexItem>
+    );
   };
 
   useEffect(() => {
     if (!redirect) refresh();
   }, [props.startTime, props.endTime, props.serviceName, props.mode]);
-
-  const actionsButton = (
-    <EuiSmallButton
-      data-test-subj="ActionContextMenu"
-      iconType="arrowDown"
-      iconSide="right"
-      onClick={() => setActionsMenuPopover(!actionsMenuPopover)}
-    >
-      Actions
-    </EuiSmallButton>
-  );
-
-  const actionsMenu: EuiContextMenuPanelDescriptor[] = [
-    {
-      id: 0,
-      items: [
-        ...(mode === 'data_prepper' || mode === 'custom_data_prepper'
-          ? [
-              {
-                name: 'View logs',
-                'data-test-subj': 'viewLogsButton',
-                onClick: () => {
-                  const correlatedLogsIndex = TraceSettings.getCorrelatedLogsIndex();
-                  const correlatedServiceNameField = TraceSettings.getCorrelatedLogsFieldMappings()
-                    .serviceName;
-                  const correlatedTimestampField = TraceSettings.getCorrelatedLogsFieldMappings()
-                    .timestamp;
-                  // NOTE: Discover has issue with PPL Time filter, hence adding +3/-3 days to actual timestamp
-                  const startTime =
-                    dateMath
-                      .parse(props.startTime)!
-                      .subtract(3, 'days')
-                      .format(TRACE_ANALYTICS_DATE_FORMAT) ?? 'now-3y';
-                  const endTime =
-                    dateMath
-                      .parse(props.endTime, { roundUp: true })!
-                      .add(3, 'days')
-                      .format(TRACE_ANALYTICS_DATE_FORMAT) ?? 'now';
-                  if (coreRefs?.dataSource?.dataSourceEnabled) {
-                    coreRefs?.application!.navigateToApp('data-explorer', {
-                      path: `discover#?_a=(discover:(columns:!(_source),isDirty:!f,sort:!()),metadata:(view:discover))&_g=(filters:!(),refreshInterval:(pause:!t,value:0),time:(from:'${startTime}',to:'${endTime}'))&_q=(filters:!(),query:(dataset:(dataSource:(id:'${
-                        props.dataSourceMDSId[0].id ?? ''
-                      }',title:'${props.dataSourceMDSId[0].label}',type:DATA_SOURCE),id:'${
-                        props.dataSourceMDSId[0].id ?? ''
-                      }::${correlatedLogsIndex}',timeFieldName:'${correlatedTimestampField}',title:'${correlatedLogsIndex}',type:INDEXES),language:PPL,query:'source%20%3D%20${correlatedLogsIndex}%20%7C%20where%20${correlatedServiceNameField}%20%3D%20%22${
-                        props.serviceName
-                      }%22'))`,
-                    });
-                  } else {
-                    coreRefs?.application!.navigateToApp(observabilityLogsID, {
-                      path: `#/explorer`,
-                      state: {
-                        DEFAULT_DATA_SOURCE_NAME,
-                        DEFAULT_DATA_SOURCE_TYPE,
-                        queryToRun: `source = ${correlatedLogsIndex} | where ${correlatedServiceNameField}='${props.serviceName}'`,
-                        timestampField: correlatedTimestampField,
-                        startTimeRange: props.startTime,
-                        endTimeRange: props.endTime,
-                      },
-                    });
-                  }
-                },
-              },
-            ]
-          : []),
-        {
-          name: 'View traces',
-          'data-test-subj': 'viewTracesButton',
-          onClick: redirectToServiceTraces,
-        },
-        {
-          name: 'Expand view',
-          'data-test-subj': 'viewServiceButton',
-          onClick: () => {
-            if (setCurrentSelectedService) setCurrentSelectedService('');
-            redirectToServicePage(props.serviceName);
-          },
-        },
-      ],
-    },
-  ];
 
   const serviceHeader = (
     <EuiText size="s">
@@ -282,17 +263,16 @@ export function ServiceView(props: ServiceViewProps) {
   );
 
   const renderTitle = (
-    serviceName: string,
     startTime: SearchBarProps['startTime'],
     setStartTime: SearchBarProps['setStartTime'],
     endTime: SearchBarProps['endTime'],
     setEndTime: SearchBarProps['setEndTime'],
     _addFilter: (filter: FilterType) => void,
-    _page?: string
+    currentPage?: string
   ) => {
     return (
       <>
-        {_page === 'serviceFlyout' ? (
+        {currentPage === 'serviceFlyout' ? (
           <EuiFlyoutHeader hasBorder>
             <EuiFlexGroup justifyContent="spaceBetween">
               <EuiFlexItem>{serviceHeader}</EuiFlexItem>
@@ -301,21 +281,15 @@ export function ServiceView(props: ServiceViewProps) {
               <EuiFlexItem grow={true}>
                 {renderDatePicker(startTime, setStartTime, endTime, setEndTime)}
               </EuiFlexItem>
-              <EuiFlexItem grow={false}>
-                <EuiPopover
-                  panelPaddingSize="none"
-                  button={actionsButton}
-                  isOpen={actionsMenuPopover}
-                  closePopover={() => setActionsMenuPopover(false)}
-                >
-                  <EuiContextMenu initialPanelId={0} panels={actionsMenu} size="s" />
-                </EuiPopover>
-              </EuiFlexItem>
+              {renderServiceActionsMenu(currentPage === 'serviceFlyout')}
             </EuiFlexGroup>
           </EuiFlyoutHeader>
         ) : coreRefs?.chrome?.navGroup.getNavGroupEnabled() ? (
           <HeaderControlledComponentsWrapper
-            components={[renderDatePicker(startTime, setStartTime, endTime, setEndTime)]}
+            components={[
+              renderDatePicker(startTime, setStartTime, endTime, setEndTime),
+              renderServiceActionsMenu(currentPage === 'serviceFlyout'),
+            ]}
           />
         ) : (
           <EuiFlexGroup alignItems="center" gutterSize="s">
@@ -323,6 +297,7 @@ export function ServiceView(props: ServiceViewProps) {
             <EuiFlexItem grow={false}>
               {renderDatePicker(startTime, setStartTime, endTime, setEndTime)}
             </EuiFlexItem>
+            {renderServiceActionsMenu(currentPage === 'serviceFlyout')}
           </EuiFlexGroup>
         )}
       </>
@@ -341,94 +316,100 @@ export function ServiceView(props: ServiceViewProps) {
           ) : (
             <>
               <EuiHorizontalRule margin="m" />
-              <EuiFlexGroup>
-                <EuiFlexItem>
-                  <EuiFlexGroup direction="column">
-                    <EuiFlexItem grow={false}>
-                      <EuiText className="overview-title">Name</EuiText>
-                      <EuiText size="s" className="overview-content">
-                        {props.serviceName || '-'}
-                      </EuiText>
-                    </EuiFlexItem>
-                    {mode === 'data_prepper' || mode === 'custom_data_prepper' ? (
-                      <EuiFlexItem grow={false}>
-                        <EuiText className="overview-title">Number of connected services</EuiText>
-                        <EuiText size="s" className="overview-content">
-                          {fields.number_of_connected_services !== undefined
-                            ? fields.number_of_connected_services
-                            : 0}
-                        </EuiText>
-                      </EuiFlexItem>
-                    ) : (
-                      <EuiFlexItem />
-                    )}
-                    {mode === 'data_prepper' || mode === 'custom_data_prepper' ? (
-                      <EuiFlexItem grow={false}>
-                        <EuiText className="overview-title">Connected services</EuiText>
-                        <EuiText size="s" className="overview-content">
-                          {fields.connected_services && fields.connected_services.length
-                            ? fields.connected_services
-                                .map((service: string) => (
-                                  <EuiLink
-                                    onClick={() => onClickConnectedService(service)}
-                                    key={service}
-                                  >
-                                    {service}
-                                  </EuiLink>
-                                ))
-                                .reduce((prev: React.ReactNode, curr: React.ReactNode) => {
-                                  return [prev, ', ', curr];
-                                })
-                            : '-'}
-                        </EuiText>
-                      </EuiFlexItem>
-                    ) : (
-                      <EuiFlexItem />
-                    )}
-                  </EuiFlexGroup>
-                </EuiFlexItem>
-                <EuiFlexItem>
-                  <EuiFlexGroup direction="column">
-                    <EuiFlexItem grow={false}>
-                      <EuiText className="overview-title">Average duration (ms)</EuiText>
-                      <EuiText size="s" className="overview-content">
-                        {fields.average_latency !== undefined ? fields.average_latency : '-'}
-                      </EuiText>
-                    </EuiFlexItem>
-                    <EuiFlexItem grow={false}>
-                      <EuiText className="overview-title">Error rate</EuiText>
-                      <EuiText size="s" className="overview-content">
-                        {fields.error_rate !== undefined
-                          ? round(fields.error_rate, 2).toString() + '%'
-                          : '-'}
-                      </EuiText>
-                    </EuiFlexItem>
-                    <EuiFlexItem grow={false}>
-                      <EuiText className="overview-title">Request rate</EuiText>
-                      <EuiText size="s" className="overview-content">
-                        {fields.throughput !== undefined ? (
-                          <EuiI18nNumber value={fields.throughput} />
+              {serviceIdEmpty || serviceIdError ? (
+                <NoMatchMessage size="xl" mode={mode} />
+              ) : (
+                <>
+                  <EuiFlexGroup>
+                    <EuiFlexItem>
+                      <EuiFlexGroup direction="column">
+                        <EuiFlexItem grow={false}>
+                          <EuiText className="overview-title">Name</EuiText>
+                          <EuiText size="s" className="overview-content">
+                            {props.serviceName || '-'}
+                          </EuiText>
+                        </EuiFlexItem>
+                        {mode === 'data_prepper' ? (
+                          <EuiFlexItem grow={false}>
+                            <EuiText className="overview-title">
+                              Number of connected services
+                            </EuiText>
+                            <EuiText size="s" className="overview-content">
+                              {fields.number_of_connected_services !== undefined
+                                ? fields.number_of_connected_services
+                                : 0}
+                            </EuiText>
+                          </EuiFlexItem>
                         ) : (
-                          '-'
+                          <EuiFlexItem />
                         )}
-                      </EuiText>
-                    </EuiFlexItem>
-                    <EuiFlexItem grow={false}>
-                      <EuiText className="overview-title">Traces</EuiText>
-                      <EuiText size="s" className="overview-content">
-                        {fields.traces === 0 || fields.traces ? (
-                          <EuiLink onClick={redirectToServiceTraces}>
-                            <EuiI18nNumber value={fields.traces} />
-                          </EuiLink>
+                        {mode === 'data_prepper' ? (
+                          <EuiFlexItem grow={false}>
+                            <EuiText className="overview-title">Connected services</EuiText>
+                            <EuiText size="s" className="overview-content">
+                              {fields.connected_services && fields.connected_services.length
+                                ? fields.connected_services
+                                    .map((service: string) => (
+                                      <EuiLink
+                                        onClick={() => onClickConnectedService(service)}
+                                        key={service}
+                                      >
+                                        {service}
+                                      </EuiLink>
+                                    ))
+                                    .reduce((prev: React.ReactNode, curr: React.ReactNode) => {
+                                      return [prev, ', ', curr];
+                                    })
+                                : '-'}
+                            </EuiText>
+                          </EuiFlexItem>
                         ) : (
-                          '-'
+                          <EuiFlexItem />
                         )}
-                      </EuiText>
+                      </EuiFlexGroup>
+                    </EuiFlexItem>
+                    <EuiFlexItem>
+                      <EuiFlexGroup direction="column">
+                        <EuiFlexItem grow={false}>
+                          <EuiText className="overview-title">Average duration (ms)</EuiText>
+                          <EuiText size="s" className="overview-content">
+                            {fields.average_latency !== undefined ? fields.average_latency : '-'}
+                          </EuiText>
+                        </EuiFlexItem>
+                        <EuiFlexItem grow={false}>
+                          <EuiText className="overview-title">Error rate</EuiText>
+                          <EuiText size="s" className="overview-content">
+                            {fields.error_rate !== undefined
+                              ? round(fields.error_rate, 2).toString() + '%'
+                              : '-'}
+                          </EuiText>
+                        </EuiFlexItem>
+                        <EuiFlexItem grow={false}>
+                          <EuiText className="overview-title">Request rate</EuiText>
+                          <EuiText size="s" className="overview-content">
+                            {fields.throughput !== undefined ? (
+                              <EuiI18nNumber value={fields.throughput} />
+                            ) : (
+                              '-'
+                            )}
+                          </EuiText>
+                        </EuiFlexItem>
+                        <EuiFlexItem grow={false}>
+                          <EuiText className="overview-title">Traces</EuiText>
+                          <EuiText size="s" className="overview-content">
+                            {fields.traces === 0 || fields.traces ? (
+                              <EuiI18nNumber value={fields.traces} />
+                            ) : (
+                              '-'
+                            )}
+                          </EuiText>
+                        </EuiFlexItem>
+                      </EuiFlexGroup>
                     </EuiFlexItem>
                   </EuiFlexGroup>
-                </EuiFlexItem>
-              </EuiFlexGroup>
-              <EuiSpacer />
+                  <EuiSpacer />
+                </>
+              )}
             </>
           )}
         </EuiPanel>
@@ -445,7 +426,6 @@ export function ServiceView(props: ServiceViewProps) {
   const title = useMemo(
     () =>
       renderTitle(
-        props.serviceName,
         props.startTime,
         props.setStartTime,
         props.endTime,
@@ -453,7 +433,7 @@ export function ServiceView(props: ServiceViewProps) {
         props.addFilter,
         page
       ),
-    [props.serviceName, props.startTime, props.endTime, page, actionsMenuPopover]
+    [props.startTime, props.endTime, page]
   );
 
   const activeFilters = useMemo(
@@ -479,9 +459,9 @@ export function ServiceView(props: ServiceViewProps) {
       props.filters,
       props.query,
       processTimeStamp(props.startTime, mode),
-      processTimeStamp(props.endTime, mode)
+      processTimeStamp(props.endTime, mode, true)
     );
-    if (mode === 'data_prepper' || mode === 'custom_data_prepper') {
+    if (mode === 'data_prepper') {
       spanDSL.query.bool.filter.push({
         term: {
           serviceName: props.serviceName,
@@ -567,9 +547,30 @@ export function ServiceView(props: ServiceViewProps) {
         </EuiText>
       )}
       <EuiSpacer size="m" />
+      {serviceIdError && (
+        <>
+          <EuiCallOut
+            title={i18n.translate('serviceView.callout.errorTitle', {
+              defaultMessage: 'Error loading service: {serviceName}',
+              values: { serviceName: props.serviceName },
+            })}
+            color="danger"
+            iconType="alert"
+          >
+            <p>
+              {i18n.translate('serviceView.callout.errorDescription', {
+                defaultMessage:
+                  'The service name is invalid or could not be found. Please check the URL or try again.',
+              })}
+            </p>
+          </EuiCallOut>
+          <EuiSpacer size="m" />
+        </>
+      )}
+
       {overview}
 
-      {mode === 'data_prepper' || mode === 'custom_data_prepper' ? (
+      {mode === 'data_prepper' ? (
         <>
           <EuiSpacer />
           <ServiceMetrics

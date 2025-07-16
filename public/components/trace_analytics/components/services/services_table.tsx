@@ -30,6 +30,7 @@ import {
   NoMatchMessage,
   PanelTitle,
 } from '../common/helper_functions';
+import { redirectToServiceLogs, redirectToServiceTraces } from '../common/redirection_helpers';
 import { ServiceTrendsPlots } from './service_trends_plots';
 
 interface ServicesTableProps {
@@ -44,11 +45,12 @@ interface ServicesTableProps {
   setRedirect: (redirect: boolean) => void;
   mode: TraceAnalyticsMode;
   jaegerIndicesExist: boolean;
-  dataPrepperIndicesExist: boolean;
   isServiceTrendEnabled: boolean;
   setIsServiceTrendEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   serviceTrends: ServiceTrends;
   dataSourceMDSId: DataSourceOption[];
+  startTime: string;
+  endTime: string;
   page: 'app' | 'services';
 }
 
@@ -65,11 +67,12 @@ export function ServicesTable(props: ServicesTableProps) {
     addFilter,
     setRedirect,
     jaegerIndicesExist,
-    dataPrepperIndicesExist,
     isServiceTrendEnabled,
     setIsServiceTrendEnabled,
     serviceTrends,
     dataSourceMDSId,
+    startTime,
+    endTime,
     page,
   } = props;
 
@@ -104,7 +107,7 @@ export function ServicesTable(props: ServicesTableProps) {
                 </EuiButtonEmpty>
               </EuiToolTip>
             </EuiFlexItem>
-            {(mode === 'data_prepper' || mode === 'custom_data_prepper') && (
+            {mode === 'data_prepper' && (
               <EuiFlexItem>
                 <EuiButtonEmpty
                   size="xs"
@@ -179,7 +182,7 @@ export function ServicesTable(props: ServicesTableProps) {
           />
         ),
       },
-      ...(mode === 'data_prepper' || mode === 'custom_data_prepper'
+      ...(mode === 'data_prepper'
         ? [
             {
               field: 'number_of_connected_services',
@@ -192,7 +195,7 @@ export function ServicesTable(props: ServicesTableProps) {
             },
           ]
         : []),
-      ...(mode === 'data_prepper' || mode === 'custom_data_prepper'
+      ...(mode === 'data_prepper'
         ? [
             {
               field: 'connected_services',
@@ -219,21 +222,25 @@ export function ServicesTable(props: ServicesTableProps) {
         render: (item: any, row: any) => (
           <>
             {item === 0 || item ? (
-              <EuiLink
-                onClick={() => {
-                  setRedirect(true);
-                  addFilter({
-                    field: mode === 'jaeger' ? 'process.serviceName' : 'serviceName',
-                    operator: 'is',
-                    value: row.name,
-                    inverted: false,
-                    disabled: false,
-                  });
-                  traceColumnAction();
-                }}
-              >
+              page === 'app' ? (
+                <EuiLink
+                  onClick={() => {
+                    setRedirect(true);
+                    addFilter({
+                      field: mode === 'jaeger' ? 'process.serviceName' : 'serviceName',
+                      operator: 'is',
+                      value: row.name,
+                      inverted: false,
+                      disabled: false,
+                    });
+                    traceColumnAction();
+                  }}
+                >
+                  <EuiI18nNumber value={item} />
+                </EuiLink>
+              ) : (
                 <EuiI18nNumber value={item} />
-              </EuiLink>
+              )
             ) : (
               '-'
             )}
@@ -248,12 +255,54 @@ export function ServicesTable(props: ServicesTableProps) {
         name: 'Actions',
         align: 'center',
         render: (_item: any, row: any) => (
-          <EuiFlexGroup justifyContent="center">
+          <EuiFlexGroup justifyContent="center" gutterSize="m">
             <EuiFlexItem grow={false} onClick={() => setCurrentSelectedService(row.name)}>
-              <EuiLink data-test-subj={'service-flyout-action-btn' + row.itemId}>
-                <EuiIcon type="inspect" color="primary" />
-              </EuiLink>
+              <EuiToolTip content="View service details">
+                <EuiLink data-test-subj={'service-flyout-action-btn' + row.itemId}>
+                  <EuiIcon type="inspect" color="primary" />
+                </EuiLink>
+              </EuiToolTip>
             </EuiFlexItem>
+            <EuiFlexItem
+              grow={false}
+              onClick={() => {
+                if (setCurrentSelectedService) setCurrentSelectedService('');
+                setRedirect(true);
+                redirectToServiceTraces({
+                  mode,
+                  addFilter,
+                  dataSourceMDSId,
+                  serviceName: row.name,
+                });
+              }}
+            >
+              <EuiToolTip content="View service traces">
+                <EuiLink data-test-subj={'service-traces-redirection-btn' + row.itemId}>
+                  <EuiIcon type="apmTrace" color="primary" />
+                </EuiLink>
+              </EuiToolTip>
+            </EuiFlexItem>
+            {mode === 'data_prepper' && (
+              <>
+                <EuiFlexItem
+                  grow={false}
+                  onClick={() =>
+                    redirectToServiceLogs({
+                      fromTime: startTime,
+                      toTime: endTime,
+                      dataSourceMDSId,
+                      serviceName: row.name,
+                    })
+                  }
+                >
+                  <EuiToolTip content="View service logs">
+                    <EuiLink data-test-subj={'service-logs-redirection-btn' + row.itemId}>
+                      <EuiIcon type="discoverApp" color="primary" />
+                    </EuiLink>
+                  </EuiToolTip>
+                </EuiFlexItem>
+              </>
+            )}
           </EuiFlexGroup>
         ),
         sortable: false,
@@ -275,11 +324,7 @@ export function ServicesTable(props: ServicesTableProps) {
         {titleBar}
         <EuiSpacer size="m" />
         <EuiHorizontalRule margin="none" />
-        {!(
-          mode === 'custom_data_prepper' ||
-          (mode === 'data_prepper' && dataPrepperIndicesExist) ||
-          (mode === 'jaeger' && jaegerIndicesExist)
-        ) ? (
+        {!(mode === 'data_prepper' || (mode === 'jaeger' && jaegerIndicesExist)) ? (
           <MissingConfigurationMessage mode={mode} />
         ) : items?.length > 0 || loading ? (
           <EuiInMemoryTable
@@ -302,7 +347,7 @@ export function ServicesTable(props: ServicesTableProps) {
             itemId="itemId"
           />
         ) : (
-          <NoMatchMessage size="xl" />
+          <NoMatchMessage size="xl" mode={mode} />
         )}
       </EuiPanel>
     </>

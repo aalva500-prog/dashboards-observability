@@ -24,6 +24,7 @@ import truncate from 'lodash/truncate';
 import React, { useMemo, useState } from 'react';
 import { TRACES_MAX_NUM } from '../../../../../common/constants/trace_analytics';
 import { TraceAnalyticsMode } from '../../../../../common/types/trace_analytics';
+import { MAX_DISPLAY_ROWS } from '../common/constants';
 import {
   appendModeToTraceViewUri,
   MissingConfigurationMessage,
@@ -39,18 +40,23 @@ interface TracesTableProps {
   getTraceViewUri?: (traceId: string) => string;
   openTraceFlyout?: (traceId: string) => void;
   jaegerIndicesExist: boolean;
-  dataPrepperIndicesExist: boolean;
   page?: 'traces' | 'app';
+  uniqueTraces: number;
 }
 
 export function TracesTable(props: TracesTableProps) {
-  const { items, refresh, mode, loading, getTraceViewUri, openTraceFlyout } = props;
-  const renderTitleBar = (totalItems?: number) => {
+  const { items, refresh, mode, loading, getTraceViewUri, openTraceFlyout, uniqueTraces } = props;
+  const renderTitleBar = (rowCount: number, totalCount: number) => {
+    const totalCountText = totalCount > MAX_DISPLAY_ROWS ? `${MAX_DISPLAY_ROWS}+` : totalCount;
+
     return (
       <EuiFlexGroup alignItems="center" gutterSize="s">
         <EuiFlexItem grow={10}>
-          <PanelTitle title="Traces" totalItems={totalItems} />
+          <PanelTitle title="Traces" totalItems={rowCount} />
         </EuiFlexItem>
+        {totalCount > rowCount && (
+          <span className="trace-table-warning">{`Results out of ${totalCountText}`}</span>
+        )}
       </EuiFlexGroup>
     );
   };
@@ -62,11 +68,11 @@ export function TracesTable(props: TracesTableProps) {
       new URLSearchParams(currentUrl.split('?')[1]).get('mode') ||
       sessionStorage.getItem('TraceAnalyticsMode');
 
-    if (mode === 'data_prepper' || mode === 'custom_data_prepper') {
+    if (mode === 'data_prepper') {
       return [
         {
           field: 'trace_id',
-          name: 'Trace ID',
+          name: 'Trace Id',
           align: 'left',
           sortable: true,
           truncateText: false,
@@ -122,6 +128,7 @@ export function TracesTable(props: TracesTableProps) {
           align: 'right',
           sortable: true,
           truncateText: true,
+          render: (item) => (item === 0 || item ? item : '-'),
         },
         {
           field: 'percentile_in_trace_group',
@@ -159,7 +166,7 @@ export function TracesTable(props: TracesTableProps) {
       return [
         {
           field: 'trace_id',
-          name: 'Trace ID',
+          name: 'Trace Id',
           align: 'left',
           sortable: true,
           truncateText: true,
@@ -227,7 +234,10 @@ export function TracesTable(props: TracesTableProps) {
     }
   }, [items]);
 
-  const titleBar = useMemo(() => renderTitleBar(items?.length), [items]);
+  const titleBar = useMemo(() => renderTitleBar(items?.length, uniqueTraces), [
+    items,
+    uniqueTraces,
+  ]);
 
   const [sorting, setSorting] = useState<{ sort: PropertySort }>({
     sort: {
@@ -272,11 +282,7 @@ export function TracesTable(props: TracesTableProps) {
         {titleBar}
         <EuiSpacer size="m" />
         <EuiHorizontalRule margin="none" />
-        {!(
-          mode === 'custom_data_prepper' ||
-          (mode === 'data_prepper' && props.dataPrepperIndicesExist) ||
-          (mode === 'jaeger' && props.jaegerIndicesExist)
-        ) ? (
+        {!(mode === 'data_prepper' || (mode === 'jaeger' && props.jaegerIndicesExist)) ? (
           <MissingConfigurationMessage mode={mode} />
         ) : items?.length > 0 || loading ? (
           <EuiInMemoryTable
@@ -293,7 +299,7 @@ export function TracesTable(props: TracesTableProps) {
             loading={loading}
           />
         ) : (
-          <NoMatchMessage size="xl" />
+          <NoMatchMessage size="xl" mode={mode} />
         )}
       </EuiPanel>
     </>

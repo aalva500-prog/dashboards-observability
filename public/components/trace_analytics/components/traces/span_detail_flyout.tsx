@@ -14,9 +14,11 @@ import {
   EuiFlyoutHeader,
   EuiHorizontalRule,
   EuiLoadingContent,
+  EuiSmallButton,
   EuiSmallButtonIcon,
   EuiSpacer,
   EuiText,
+  EuiToolTip,
 } from '@elastic/eui';
 import get from 'lodash/get';
 import isEmpty from 'lodash/isEmpty';
@@ -24,16 +26,11 @@ import round from 'lodash/round';
 import moment from 'moment';
 import React, { useEffect, useState } from 'react';
 import { HttpSetup } from '../../../../../../../src/core/public';
-import {
-  DEFAULT_DATA_SOURCE_NAME,
-  DEFAULT_DATA_SOURCE_TYPE,
-} from '../../../../../common/constants/data_sources';
-import { observabilityLogsID } from '../../../../../common/constants/shared';
 import { TRACE_ANALYTICS_DATE_FORMAT } from '../../../../../common/constants/trace_analytics';
 import { SpanField, TraceAnalyticsMode } from '../../../../../common/types/trace_analytics';
-import { coreRefs } from '../../../../framework/core_refs';
 import { handleSpansFlyoutRequest } from '../../requests/traces_request_handler';
-import { microToMilliSec, nanoToMilliSec, TraceSettings } from '../common/helper_functions';
+import { microToMilliSec, nanoToMilliSec } from '../common/helper_functions';
+import { redirectSpansToLogs } from '../common/redirection_helpers';
 import { FlyoutListItem } from './flyout_list_item';
 
 const MODE_TO_FIELDS: Record<TraceAnalyticsMode, Record<SpanField, string | undefined>> = {
@@ -57,16 +54,6 @@ const MODE_TO_FIELDS: Record<TraceAnalyticsMode, Record<SpanField, string | unde
     END_TIME: undefined,
     ERRORS: 'tag.error',
   },
-  custom_data_prepper: {
-    SPAN_ID: 'spanId',
-    PARENT_SPAN_ID: 'parentSpanId',
-    SERVICE: 'serviceName',
-    OPERATION: 'name',
-    DURATION: 'durationInNanos',
-    START_TIME: 'startTime',
-    END_TIME: 'endTime',
-    ERRORS: 'status.code',
-  },
 };
 
 const getSpanFieldKey = (mode: TraceAnalyticsMode, field: SpanField) => MODE_TO_FIELDS[mode][field];
@@ -75,6 +62,26 @@ const getSpanValue = (span: object, mode: TraceAnalyticsMode, field: SpanField) 
   const fieldKey = getSpanFieldKey(mode, field);
   if (fieldKey === undefined) return undefined;
   return get(span, fieldKey);
+};
+
+// Flatten nested objects with dot notation
+export const flattenObject = (
+  obj: any,
+  prefix = '',
+  result: Record<string, any> = {}
+): Record<string, any> => {
+  for (const key in obj) {
+    if (obj.hasOwnProperty(key)) {
+      const newKey = prefix ? `${prefix}.${key}` : key;
+
+      if (obj[key] !== null && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
+        flattenObject(obj[key], newKey, result);
+      } else {
+        result[newKey] = obj[key];
+      }
+    }
+  }
+  return result;
 };
 
 export function SpanDetailFlyout(props: {
@@ -118,7 +125,9 @@ export function SpanDetailFlyout(props: {
         description={description}
         key={`list-item-${title}`}
         addSpanFilter={
-          fieldKey ? () => props.addSpanFilter(fieldKey, get(span, fieldKey)) : undefined
+          fieldKey
+            ? () => props.addSpanFilter(fieldKey, get(flattenObject(span), fieldKey))
+            : undefined
         }
       />
     );
@@ -171,11 +180,7 @@ export function SpanDetailFlyout(props: {
           <EuiFlexGroup gutterSize="xs" style={{ marginTop: -4, marginBottom: -4 }}>
             <EuiFlexItem grow={false}>
               <EuiCopy
-                textToCopy={
-                  mode === 'data_prepper' || mode === 'custom_data_prepper'
-                    ? span.parentSpanId
-                    : span.references[0].spanID
-                }
+                textToCopy={mode === 'data_prepper' ? span.parentSpanId : span.references[0].spanID}
               >
                 {(copy) => (
                   <EuiSmallButtonIcon
@@ -187,9 +192,7 @@ export function SpanDetailFlyout(props: {
               </EuiCopy>
             </EuiFlexItem>
             <EuiFlexItem data-test-subj="parentSpanId">
-              {mode === 'data_prepper' || mode === 'custom_data_prepper'
-                ? span.parentSpanId
-                : span.references[0].spanID}
+              {mode === 'data_prepper' ? span.parentSpanId : span.references[0].spanID}
             </EuiFlexItem>
           </EuiFlexGroup>
         ) : (
@@ -210,7 +213,7 @@ export function SpanDetailFlyout(props: {
         getSpanFieldKey(mode, 'DURATION'),
         'Duration',
         `${
-          mode === 'data_prepper' || mode === 'custom_data_prepper'
+          mode === 'data_prepper'
             ? round(nanoToMilliSec(Math.max(0, span.durationInNanos)), 2)
             : round(microToMilliSec(Math.max(0, span.duration)), 2)
         } ms`
@@ -218,7 +221,7 @@ export function SpanDetailFlyout(props: {
       getListItem(
         getSpanFieldKey(mode, 'START_TIME'),
         'Start time',
-        mode === 'data_prepper' || mode === 'custom_data_prepper'
+        mode === 'data_prepper'
           ? moment(span.startTime).format(TRACE_ANALYTICS_DATE_FORMAT)
           : moment(round(microToMilliSec(Math.max(0, span.startTime)), 2)).format(
               TRACE_ANALYTICS_DATE_FORMAT
@@ -227,7 +230,7 @@ export function SpanDetailFlyout(props: {
       getListItem(
         getSpanFieldKey(mode, 'END_TIME'),
         'End time',
-        mode === 'data_prepper' || mode === 'custom_data_prepper'
+        mode === 'data_prepper'
           ? moment(span.endTime).format(TRACE_ANALYTICS_DATE_FORMAT)
           : moment(round(microToMilliSec(Math.max(0, span.startTime + span.duration)), 2)).format(
               TRACE_ANALYTICS_DATE_FORMAT
@@ -236,11 +239,7 @@ export function SpanDetailFlyout(props: {
       getListItem(
         getSpanFieldKey(mode, 'ERRORS'),
         'Errors',
-        (
-          mode === 'data_prepper' || mode === 'custom_data_prepper'
-            ? span['status.code'] === 2
-            : span.tag?.error
-        ) ? (
+        (mode === 'data_prepper' ? span['status.code'] === 2 : span.tag?.error) ? (
           <EuiText color="danger" size="s" style={{ fontWeight: 700 }}>
             Yes
           </EuiText>
@@ -270,18 +269,20 @@ export function SpanDetailFlyout(props: {
       'traceGroupFields.statusCode',
       'traceGroupFields.durationInNanos',
     ]);
-    const attributesList = Object.keys(span)
+    const allAttributes = flattenObject(span);
+
+    const attributesList = Object.keys(allAttributes)
       .filter((key) => !ignoredKeys.has(key))
       .sort((keyA, keyB) => {
-        const isANull = _isEmpty(span[keyA]);
-        const isBNull = _isEmpty(span[keyB]);
+        const isANull = _isEmpty(allAttributes[keyA]);
+        const isBNull = _isEmpty(allAttributes[keyB]);
         if ((isANull && isBNull) || (!isANull && !isBNull)) return keyA < keyB ? -1 : 1;
         if (isANull) return 1;
         return -1;
       })
       .map((key) => {
-        if (_isEmpty(span[key])) return getListItem(key, key, '-');
-        let value = span[key];
+        if (_isEmpty(allAttributes[key])) return getListItem(key, key, '-');
+        let value = allAttributes[key];
         if (typeof value === 'object') value = JSON.stringify(value);
         return getListItem(key, key, value);
       });
@@ -323,40 +324,6 @@ export function SpanDetailFlyout(props: {
     );
   };
 
-  const redirectToExplorer = () => {
-    const correlatedLogsIndex = TraceSettings.getCorrelatedLogsIndex();
-    const correlatedSpanField = TraceSettings.getCorrelatedLogsFieldMappings().spanId;
-    const correlatedTimestampField = TraceSettings.getCorrelatedLogsFieldMappings().timestamp;
-    // NOTE: Discover has issue with PPL Time filter, hence adding +3/-3 days to actual timestamp
-    const startTime =
-      moment(span.startTime).subtract(3, 'days').format(TRACE_ANALYTICS_DATE_FORMAT) ?? 'now-3y';
-    const endTime =
-      moment(span.endTime).add(3, 'days').format(TRACE_ANALYTICS_DATE_FORMAT) ?? 'now';
-    const spanId = getSpanValue(span, mode, 'SPAN_ID');
-
-    if (coreRefs?.dataSource?.dataSourceEnabled) {
-      coreRefs?.application!.navigateToApp('data-explorer', {
-        path: `discover#?_a=(discover:(columns:!(_source),isDirty:!f,sort:!()),metadata:(view:discover))&_g=(filters:!(),refreshInterval:(pause:!t,value:0),time:(from:'${startTime}',to:'${endTime}'))&_q=(filters:!(),query:(dataset:(dataSource:(id:'${
-          props.dataSourceMDSId ?? ''
-        }',title:${props.dataSourceMDSLabel},type:DATA_SOURCE),id:'${
-          props.dataSourceMDSId ?? ''
-        }::${correlatedLogsIndex}',timeFieldName:'${correlatedTimestampField}',title:'${correlatedLogsIndex}',type:INDEXES),language:PPL,query:'source%20%3D%20${correlatedLogsIndex}%20%7C%20where%20${correlatedSpanField}%20%3D%20!'${spanId}!''))`,
-      });
-    } else {
-      coreRefs?.application!.navigateToApp(observabilityLogsID, {
-        path: `#/explorer`,
-        state: {
-          DEFAULT_DATA_SOURCE_NAME,
-          DEFAULT_DATA_SOURCE_TYPE,
-          queryToRun: `source = ${correlatedLogsIndex} | where ${correlatedSpanField}='${spanId}'`,
-          timestampField: correlatedTimestampField,
-          startTimeRange: startTime,
-          endTimeRange: endTime,
-        },
-      });
-    }
-  };
-
   return (
     <>
       <EuiFlyout
@@ -374,11 +341,28 @@ export function SpanDetailFlyout(props: {
                 <h2>Span detail</h2>
               </EuiText>
             </EuiFlexItem>
-            {(mode === 'data_prepper' || mode === 'custom_data_prepper') && (
-              <EuiFlexItem>
-                <EuiButtonEmpty size="xs" onClick={redirectToExplorer}>
-                  View associated logs
-                </EuiButtonEmpty>
+            {mode === 'data_prepper' && (
+              <EuiFlexItem grow={false}>
+                {!isSpanDataLoading && !isEmpty(span) && (
+                  <EuiToolTip content="View associated logs using Span Id">
+                    <EuiSmallButton
+                      onClick={() => {
+                        const spanId = getSpanValue(span, mode, 'SPAN_ID');
+                        redirectSpansToLogs({
+                          fromTime: span.startTime,
+                          toTime: span.endTime,
+                          spanId,
+                          dataSourceMDSId: [
+                            { id: props.dataSourceMDSId, label: props.dataSourceMDSLabel! },
+                          ],
+                        });
+                      }}
+                      iconType="discoverApp"
+                    >
+                      View associated logs
+                    </EuiSmallButton>
+                  </EuiToolTip>
+                )}
               </EuiFlexItem>
             )}
             {props.serviceName && (

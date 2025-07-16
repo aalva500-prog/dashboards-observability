@@ -21,6 +21,7 @@ export const SPAN_ID_TREE_VIEW = 'fe4076542b41d40b';
 export const SERVICE_NAME = 'frontend-client';
 export const SERVICE_SPAN_ID = 'e275ac9d21929e9b';
 export const AUTH_SERVICE_SPAN_ID = '277a5934acf55dcf';
+export const INVALID_URL = 'invalid_url';
 
 export const testDataSet = [
   {
@@ -66,8 +67,8 @@ export const jaegerTestDataSet = [
 export const setTimeFilter = (setEndTime = false, refresh = true) => {
   const startTime = 'Mar 25, 2021 @ 10:00:00.000';
   const endTime = 'Mar 25, 2021 @ 11:00:00.000';
-  cy.get('button.euiButtonEmpty[aria-label="Date quick select"]').click();
-  cy.get('.euiQuickSelect__applyButton').click();
+  cy.get('button.euiButtonEmpty[aria-label="Date quick select"]').click({ force: true });
+  cy.get('.euiQuickSelect__applyButton').click({ force: true });
   cy.get('.euiSuperDatePicker__prettyFormatLink').click();
   cy.get('.euiTab__content').contains('Absolute').click();
   cy.get('input[data-test-subj="superDatePickerAbsoluteDateInput"]')
@@ -83,14 +84,18 @@ export const setTimeFilter = (setEndTime = false, refresh = true) => {
       .type('{selectall}' + endTime, { force: true });
   }
   if (refresh) cy.get('[data-test-subj="superDatePickerApplyTimeButton"]').click();
-  cy.get('.euiTableRow').should('have.length.greaterThan', 3); //Replaces Wait
+  cy.get('body').then(($body) => {
+    if ($body.find('[data-test-subj="globalLoadingIndicator"]').length > 0) {
+      cy.get('[data-test-subj="globalLoadingIndicator"]', { timeout: 10000 }).should('not.exist');
+    }
+  });
 };
 
 export const expandServiceView = (rowIndex = 0) => {
-  cy.get('[data-test-subj="globalLoadingIndicator"]').should('not.exist');//Replaces wait
-  cy.get('*[data-test-subj^="service-flyout-action-btntrace_service"]').eq(rowIndex).click();
-  cy.get('[data-test-subj="ActionContextMenu"]').click();
-  cy.get('[data-test-subj="viewServiceButton"]').click();
+  cy.get('[data-test-subj="globalLoadingIndicator"]').should('not.exist'); //Replaces wait
+  cy.get('[data-test-subj^="service-flyout-action-btntrace_service"]').eq(rowIndex).click();
+  cy.get('.overview-title').should('contain', 'Name');
+  cy.get('[data-test-subj="service-view-flyout-action-btn"]').click();
 };
 
 // notebooks
@@ -151,8 +156,8 @@ export const suppressResizeObserverIssue = () => {
 };
 
 export const verify_traces_spans_data_grid_cols_exists = () => {
-  cy.get('.euiDataGridHeaderCell__content').contains('Span ID').should('exist');
-  cy.get('.euiDataGridHeaderCell__content').contains('Trace ID').should('exist');
+  cy.get('.euiDataGridHeaderCell__content').contains('Span Id').should('exist');
+  cy.get('.euiDataGridHeaderCell__content').contains('Trace Id').should('exist');
   cy.get('.euiDataGridHeaderCell__content').contains('Operation').should('exist');
   cy.get('.euiDataGridHeaderCell__content').contains('Duration').should('exist');
   cy.get('.euiDataGridHeaderCell__content').contains('Start time').should('exist');

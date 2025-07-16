@@ -5,7 +5,13 @@
 
 /// <reference types="cypress" />
 
-import { setTimeFilter, SPAN_ID, TRACE_ID, SPAN_ID_TREE_VIEW } from '../../utils/constants';
+import {
+  setTimeFilter,
+  SPAN_ID,
+  TRACE_ID,
+  SPAN_ID_TREE_VIEW,
+  INVALID_URL,
+} from '../../utils/constants';
 
 describe('Testing traces table empty state', () => {
   beforeEach(() => {
@@ -32,31 +38,35 @@ describe('Testing traces table', () => {
     cy.get("[data-test-subj='indexPattern-switch-link']").click();
     cy.get("[data-test-subj='data_prepper-mode']").click();
     setTimeFilter();
+    cy.get('[data-test-subj="trace-table-mode-selector"]').click();
+    cy.get('.euiSelectableListItem__content').contains('Traces').click();
   });
 
   it('Renders the traces table', () => {
-    cy.contains(' (108)').should('exist');
-    cy.contains('03/25/2021 10:23:45').should('exist');
-    cy.contains('03f9c770db5ee2f1caac0afc36db49ba').should('exist');
-    cy.contains('224.99').should('exist');
+    cy.get("[data-test-subj='trace-table-mode-selector']").contains('108').should('exist');
+    cy.contains('Apr 20, 2021 @ 13:33:53.509').should('exist');
+    cy.contains('d5bc99166e521eec173bcb7f9b0d3c43').should('exist');
 
     // test data contains output from data-prepper 0.8, which doesn't have fields denormalized
     // Trace Analytics should be able to handle the discrepancy if some fields cannot be parsed
-    cy.contains('Invalid date').should('exist');
     cy.contains('-').should('exist');
   });
 
   it('Sorts the traces table', () => {
-    cy.get('.euiTableRow').first().contains('-').should('exist');
-    cy.get('.euiTableCellContent').contains('Trace group').click();
-    cy.get('.euiTableRow').first().contains('/**').should('exist');
+    cy.get('.euiDataGridRowCell__expandFlex').contains('-').should('exist');
+    cy.get('.euiDataGridHeaderCell__content').contains('Trace group').click();
+    cy.get('.euiDataGridRowCell--lastColumn')
+      .last()
+      .contains('Apr 20, 2021 @ 13:33:51.191')
+      .should('exist');
   });
 
   it('Searches correctly', () => {
-    cy.get('input[type="search"]').focus().type(`${TRACE_ID}{enter}`);
+    cy.get('input[type="search"]').first().focus().type(`${TRACE_ID}{enter}`);
     cy.get('[data-test-subj="superDatePickerApplyTimeButton"]').click();
-    cy.contains(' (1)').should('exist');
-    cy.contains('03/25/2021 10:21:22').should('exist');
+    cy.get("[data-test-subj='trace-table-mode-selector']").contains('1').should('exist');
+    cy.contains('147.77').should('exist');
+    cy.contains('Mar 25, 2021 @ 10:21:22.896').should('exist');
   });
 });
 
@@ -70,10 +80,23 @@ describe('Testing trace view', () => {
     cy.get("[data-test-subj='indexPattern-switch-link']").click();
     cy.get("[data-test-subj='data_prepper-mode']").click();
     setTimeFilter();
-    cy.get('input[type="search"]').focus().type(`${TRACE_ID}`);
+    cy.get('input[type="search"]').first().focus().clear().type(`${TRACE_ID}`);
     cy.get('[data-test-subj="superDatePickerApplyTimeButton"]').click();
     cy.get('.euiTableRow').should('have.length.lessThan', 3); //Replaces wait
-    cy.get('[data-test-subj="trace-link"]').eq(0).click();
+    cy.get('[data-test-subj="trace-table-mode-selector"]').click();
+    cy.get('.euiSelectableListItem__content').contains('Traces').click();
+    cy.get('.euiDataGridRowCell--firstColumn').eq(0).click();
+  });
+
+  after(() => {
+    cy.visit(`app/observability-traces#/traces`, {
+      onBeforeLoad: (win) => {
+        win.sessionStorage.clear();
+      },
+    });
+    cy.get("[data-test-subj='indexPattern-switch-link']").click();
+    cy.get("[data-test-subj='data_prepper-mode']").click();
+    cy.get('input[type="search"]').first().focus().clear();
   });
 
   it('Renders the trace view', () => {
@@ -114,6 +137,33 @@ describe('Testing trace view', () => {
   });
 });
 
+describe('Testing trace view invalid url', () => {
+  beforeEach(() => {
+    cy.visit(`app/observability-traces#/traces?traceId=${INVALID_URL}`, {
+      onBeforeLoad: (win) => {
+        win.sessionStorage.clear();
+      },
+    });
+  });
+
+  it('Handles a invalid trace url', () => {
+    cy.get('[data-test-subj="globalLoadingIndicator"]').should('not.exist');
+    cy.contains(`${INVALID_URL}`).should('exist');
+    cy.get('.euiCallOut.euiCallOut--danger')
+      .should('exist')
+      .within(() => {
+        cy.get('.euiCallOutHeader__title').should(
+          'contain.text',
+          `Error loading Trace Id: ${INVALID_URL}`
+        );
+        cy.get('p').should(
+          'contain.text',
+          'The Trace Id is invalid or could not be found. Please check the URL or try again.'
+        );
+      });
+  });
+});
+
 describe('Testing traces table', () => {
   beforeEach(() => {
     cy.visit('app/observability-traces#/traces', {
@@ -124,36 +174,24 @@ describe('Testing traces table', () => {
     cy.get("[data-test-subj='indexPattern-switch-link']").click();
     cy.get("[data-test-subj='data_prepper-mode']").click();
     setTimeFilter();
+    cy.get('[data-test-subj="trace-table-mode-selector"]').click();
+    cy.get('.euiSelectableListItem__content').contains('Traces').click();
   });
 
   it('Renders the traces table and verify Table Column, Pagination and Rows Data ', () => {
-    cy.get('.euiTableCellContent__text').contains('Trace ID').should('exist');
-    cy.get('.euiTableCellContent__text').contains('Trace group').should('exist');
-    cy.get('.euiTableCellContent__text').contains('Duration (ms)').should('exist');
-    cy.get('.euiTableCellContent__text').contains('Percentile in trace group').should('exist');
-    cy.get('.euiTableCellContent__text').contains('Errors').should('exist');
-    cy.get('.euiTableCellContent__text').contains('Last updated').should('exist');
-    cy.get("[data-test-subj='tableHeaderCell_trace_group_1']").click();
-    cy.contains('mysql').should('not.exist');
+    cy.get('.euiDataGridHeaderCell__content').contains('Trace Id').should('exist');
+    cy.get('.euiDataGridHeaderCell__content').contains('Trace group').should('exist');
+    cy.get('.euiDataGridHeaderCell__content').contains('Duration (ms)').should('exist');
+    cy.get('.euiDataGridHeaderCell__content').contains('Percentile in trace group').should('exist');
+    cy.get('.euiDataGridHeaderCell__content').contains('Errors').should('exist');
+    cy.get('.euiDataGridHeaderCell__content').contains('Last updated').should('exist');
+    cy.contains('client_pay_order').should('exist');
     cy.get('[data-test-subj="pagination-button-next"]').click();
-    cy.contains('HTTP POST').should('exist');
+    cy.contains('client_pay_order').should('not.exist');
     cy.get('[data-test-subj="pagination-button-previous"]').click();
+    cy.get('.euiDataGridHeaderCell__content').contains('Last updated').click();
+    cy.get('.euiListGroupItem__label').contains('Sort A-Z').click();
     cy.contains('56.88').should('exist');
-    cy.get('.euiButtonEmpty').contains('5').click();
-    cy.contains('386d26555771f39c0caaf').should('exist');
-    cy.contains('5be8370207cbb002a165d').click();
-    cy.contains('client_create_order').should('exist');
-    cy.get('path[style*="rgb(116, 146, 231)"]').should('exist');
-    cy.go('back');
-    cy.get('.euiButtonEmpty__text').contains('Rows per page').click();
-    cy.get('.euiContextMenuItem__text').contains('15 rows').click();
-    let expected_row_count = 15;
-    cy.get('.euiTable--auto')
-      .find('tr')
-      .then((row) => {
-        let total = row.length - 1;
-        expect(total).to.equal(expected_row_count);
-      });
   });
 });
 
@@ -168,12 +206,23 @@ describe('Testing traces tree view', () => {
     cy.get("[data-test-subj='data_prepper-mode']").click();
     setTimeFilter();
     cy.get('[data-test-subj="globalLoadingIndicator"]').should('not.exist');
-    cy.contains('02feb3a4f611abd81f2a53244d1278ae').click();
+    cy.get('input[type="search"]')
+      .first()
+      .focus()
+      .clear()
+      .type(`02feb3a4f611abd81f2a53244d1278ae{enter}`);
+    cy.get('[data-test-subj="superDatePickerApplyTimeButton"]').click();
+    cy.get('.euiLink').contains('02feb3a4f611abd81f2a53244d1278ae').click();
     cy.get('h1.overview-content').contains('02feb3a4f611abd81f2a53244d1278ae').should('exist');
   });
 
   it('Verifies tree view and table toggle functionality with expand/collapse logic', () => {
     cy.get('.euiButtonGroup').contains('Tree view').click();
+    cy.get('body').then(($body) => {
+      if ($body.find('button[aria-label="remove current filter"]').length > 0) {
+        cy.get('button[aria-label="remove current filter"]').click();
+      }
+    });
     cy.contains('Expand all').should('exist');
     cy.contains('Collapse all').should('exist');
     //Waiting time for render to complete
@@ -264,6 +313,8 @@ describe('Testing switch mode to jaeger', () => {
     setTimeFilter();
     cy.get("[data-test-subj='indexPattern-switch-link']").click();
     cy.get("[data-test-subj='jaeger-mode']").click();
+    cy.get('input[type="search"]').first().focus().clear();
+    cy.get('[data-test-subj="superDatePickerApplyTimeButton"]').click();
   });
 
   it('Verifies columns and data', () => {
@@ -272,12 +323,13 @@ describe('Testing switch mode to jaeger', () => {
     cy.contains('No').should('exist');
     cy.contains('01/24/2023 08:33:35').should('exist');
     cy.contains('Latency (ms)').should('exist');
-    cy.contains('Trace ID').should('exist');
+    cy.contains('Trace Id').should('exist');
     cy.contains('Errors').should('exist');
     cy.contains('Last updated').should('exist');
   });
 
   it('Verifies Trace View', () => {
+    cy.contains('08ee9fd9bf964384').should('exist');
     cy.contains('08ee9fd9bf964384').click();
     cy.contains('Time spent by service').should('exist');
     cy.get("[data-test-subj='span-gantt-chart-panel']").should('exist');
@@ -294,9 +346,80 @@ describe('Testing switch mode to jaeger', () => {
     // Waiting time for render to complete
     cy.get("[data-test-subj='treeExpandAll']").click();
     cy.get("[data-test-subj='treeCollapseAll']").click();
-    
+
     cy.get("[data-test-subj='treeViewExpandArrow']").should('have.length', 1);
     cy.get("[data-test-subj='treeExpandAll']").click();
     cy.get("[data-test-subj='treeViewExpandArrow']").should('have.length.greaterThan', 1);
+  });
+});
+
+describe('Testing traces Custom source features', () => {
+  beforeEach(() => {
+    cy.visit('app/observability-traces#/traces', {
+      onBeforeLoad: (win) => {
+        win.sessionStorage.clear();
+      },
+    });
+    cy.get('[data-test-subj="globalLoadingIndicator"]').should('not.exist');
+    cy.get("[data-test-subj='indexPattern-switch-link']").click();
+    cy.get("[data-test-subj='data_prepper-mode']").click();
+    setTimeFilter();
+    cy.get('[data-test-subj="trace-table-mode-selector"]').click();
+    cy.get('.euiSelectableListItem__content').contains('All Spans').click();
+  });
+
+  it('Renders the traces custom source all spans as default, clicks trace view redirection ', () => {
+    cy.get('.euiDataGridHeaderCell__content').contains('Span Id').should('exist');
+    cy.get('.euiDataGridHeaderCell__content').contains('Trace Id').should('exist');
+    cy.get('.euiDataGridHeaderCell__content').contains('Parent Span Id').should('exist');
+    cy.get('.euiDataGridHeaderCell__content').contains('Trace group').should('exist');
+    cy.get('.euiDataGridHeaderCell__content').contains('Duration (ms)').should('exist');
+    cy.get('.euiDataGridHeaderCell__content').contains('Errors').should('exist');
+    cy.get('.euiDataGridHeaderCell__content').contains('Last updated').should('exist');
+
+    cy.get('a.euiLink.euiLink--primary').first().click();
+    cy.get('[data-test-subj="globalLoadingIndicator"]').should('not.exist');
+    cy.get('.overview-content').should('contain.text', 'd5bc99166e521eec173bcb7f9b0d3c43');
+  });
+
+  it('Renders all spans column attributes as hidden, shows column when added', () => {
+    cy.get('span.euiButtonEmpty__text').contains('60 columns hidden').should('exist');
+    cy.get('span.euiButtonEmpty__text').contains('60 columns hidden').click();
+    cy.get('button[name="span.attributes.http@url"]').click();
+    cy.get('button[name="span.attributes.http@url"]').should('have.attr', 'aria-checked', 'true');
+    cy.get('.euiDataGridHeaderCell__content').contains('span.attributes.http@url').should('exist');
+  });
+
+  it('Verifies column sorting and pagination works correctly', () => {
+    cy.contains('Duration (ms)').click();
+    cy.contains('Sort Z-A').click();
+
+    cy.get('[data-test-subj="globalLoadingIndicator"]').should('not.exist');
+    cy.contains('467.03 ms').should('exist');
+
+    cy.get('[data-test-subj="pagination-button-next"]').click();
+    cy.get('[data-test-subj="globalLoadingIndicator"]').should('not.exist');
+    cy.contains('399.10 ms').should('exist');
+
+    cy.get('[data-test-subj="pagination-button-previous"]').click();
+    cy.get('[data-test-subj="globalLoadingIndicator"]').should('not.exist');
+    cy.contains('467.03 ms').should('exist');
+  });
+
+  it('Renders the traces custom source traces, clicks trace view redirection', () => {
+    cy.get('[data-test-subj="trace-table-mode-selector"]').click();
+    cy.get('.euiSelectableListItem').contains('Traces').click();
+    cy.get('[data-test-subj="globalLoadingIndicator"]').should('not.exist');
+
+    cy.get('.euiDataGridHeaderCell__content').contains('Trace Id').should('exist');
+    cy.get('.euiDataGridHeaderCell__content').contains('Trace group').should('exist');
+    cy.get('.euiDataGridHeaderCell__content').contains('Duration (ms)').should('exist');
+    cy.get('.euiDataGridHeaderCell__content').contains('Percentile in trace group').should('exist');
+    cy.get('.euiDataGridHeaderCell__content').contains('Errors').should('exist');
+    cy.get('.euiDataGridHeaderCell__content').contains('Last updated').should('exist');
+
+    cy.get('a.euiLink.euiLink--primary').first().click();
+    cy.get('[data-test-subj="globalLoadingIndicator"]').should('not.exist');
+    cy.get('.overview-content').should('contain.text', 'd5bc99166e521eec173bcb7f9b0d3c43');
   });
 });

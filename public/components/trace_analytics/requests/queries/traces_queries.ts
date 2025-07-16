@@ -50,11 +50,13 @@ export const getTraceGroupPercentilesQuery = () => {
 export const getTracesQuery = (
   mode: TraceAnalyticsMode,
   traceId: string = '',
+  maxTraces: number = TRACES_MAX_NUM,
   sort?: PropertySort,
   isUnderOneHour?: boolean
 ) => {
   const field = sort?.field || '_key';
   const direction = sort?.direction || 'asc';
+  // Need aggregation because filtering considers the children
   const jaegerQuery: any = {
     size: 0,
     query: {
@@ -69,7 +71,7 @@ export const getTracesQuery = (
       traces: {
         terms: {
           field: 'traceID',
-          size: TRACES_MAX_NUM,
+          size: maxTraces,
           order: {
             [field]: direction,
           },
@@ -133,10 +135,15 @@ export const getTracesQuery = (
       },
     },
     aggs: {
+      unique_traces: {
+        cardinality: {
+          field: 'traceId',
+        },
+      },
       traces: {
         terms: {
           field: 'traceId',
-          size: TRACES_MAX_NUM,
+          size: maxTraces,
           order: {
             [field]: direction,
           },
@@ -150,7 +157,6 @@ export const getTracesQuery = (
                 if (doc.containsKey('traceGroupFields.durationInNanos') && !doc['traceGroupFields.durationInNanos'].empty) {
                   return Math.round(doc['traceGroupFields.durationInNanos'].value / 10000) / 100.0
                 }
-                return 0
                 `,
                 lang: 'painless',
               },
@@ -171,7 +177,17 @@ export const getTracesQuery = (
           },
           last_updated: {
             max: {
-              field: 'traceGroupFields.endTime',
+              script: {
+                source: `
+                  if (doc.containsKey('traceGroupFields.endTime') && !doc['traceGroupFields.endTime'].empty) {
+                    return doc['traceGroupFields.endTime'].value;
+                  }
+                  if (doc.containsKey('endTime') && !doc['endTime'].empty) {
+                    return doc['endTime'].value;
+                  }
+                `,
+                lang: 'painless',
+              },
             },
           },
         },
@@ -292,6 +308,8 @@ export const getSpansQuery = (spanSearchParams: SpanSearchParams) => {
 export const getCustomIndicesTracesQuery = (
   mode: TraceAnalyticsMode,
   traceId: string = '',
+  pageIndex: number = 0,
+  pageSize: number = 10,
   sort?: PropertySort,
   queryMode?: TraceQueryMode,
   isUnderOneHour?: boolean
@@ -365,7 +383,8 @@ export const getCustomIndicesTracesQuery = (
   };
 
   const dataPrepperQuery: any = {
-    size: TRACES_MAX_NUM,
+    size: pageSize,
+    from: pageIndex * pageSize,
     _source: {
       includes: [
         'spanId',
@@ -388,7 +407,7 @@ export const getCustomIndicesTracesQuery = (
       },
     },
     ...(sort && { sort: [{ [sort.field]: { order: sort.direction } }] }),
-    track_total_hits: false,
+    track_total_hits: true,
   };
 
   if (queryMode === 'root_spans') {

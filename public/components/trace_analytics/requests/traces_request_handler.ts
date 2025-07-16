@@ -38,60 +38,69 @@ export const handleCustomIndicesTracesRequest = async (
   DSL: any,
   items: any,
   setItems: (items: any) => void,
-  setColumns: (items: any) => void,
   mode: TraceAnalyticsMode,
+  pageIndex: number = 0,
+  pageSize: number = 10,
+  setTotalHits: any,
   dataSourceMDSId?: string,
   sort?: PropertySort,
   queryMode?: TraceQueryMode,
   isUnderOneHour?: boolean
 ) => {
-  const responsePromise = handleDslRequest(
-    http,
-    DSL,
-    getCustomIndicesTracesQuery(mode, undefined, sort, queryMode, isUnderOneHour),
-    mode,
-    dataSourceMDSId
-  );
+  try {
+    const response = await handleDslRequest(
+      http,
+      DSL,
+      getCustomIndicesTracesQuery(
+        mode,
+        undefined,
+        pageIndex,
+        pageSize,
+        sort,
+        queryMode,
+        isUnderOneHour
+      ),
+      mode,
+      dataSourceMDSId
+    );
 
-  return Promise.allSettled([responsePromise])
-    .then(([responseResult]) => {
-      if (responseResult.status === 'rejected') return Promise.reject(responseResult.reason);
+    const hits = response?.hits?.hits || [];
+    const totalHits = response?.hits?.total?.value ?? 0;
 
-      if (mode === 'data_prepper' || mode === 'custom_data_prepper') {
-        const keys = new Set();
-        const response = responseResult.value.hits.hits.map((val) => {
-          const source = omitBy(val._source, isArray || isObject);
-          Object.keys(source).forEach((key) => keys.add(key));
-          return { ...source };
-        });
+    setTotalHits(totalHits);
 
-        return [keys, response];
-      } else {
-        return [
-          [undefined],
-          responseResult.value.aggregations.traces.buckets.map((bucket: any) => {
-            return {
-              trace_id: bucket.key,
-              latency: bucket.latency.value,
-              last_updated: moment(bucket.last_updated.value).format(TRACE_ANALYTICS_DATE_FORMAT),
-              error_count: bucket.error_count.doc_count,
-              actions: '#',
-            };
-          }),
-        ];
-      }
-    })
-    .then((newItems) => {
-      setColumns([...newItems[0]]);
-      setItems(newItems[1]);
-    })
-    .catch((error) => {
-      console.error('Error in handleCustomIndicesTracesRequest:', error);
-      coreRefs.core?.notifications.toasts.addError(error, {
-        title: 'Failed to retrieve custom indices traces',
-        toastLifeTimeMs: 10000,
+    if (!hits.length) {
+      setItems([]);
+      return;
+    }
+
+    if (mode === 'data_prepper') {
+      const keys = new Set();
+      const results = hits.map((val) => {
+        const source = omitBy(val._source, isArray || isObject);
+        Object.keys(source).forEach((key) => keys.add(key));
+        return { ...source };
       });
+
+      setItems(results);
+    } else {
+      const buckets = response?.aggregations?.traces?.buckets || [];
+      const results = buckets.map((bucket: any) => ({
+        trace_id: bucket.key,
+        latency: bucket.latency.value,
+        last_updated: moment(bucket.last_updated.value).format(TRACE_ANALYTICS_DATE_FORMAT),
+        error_count: bucket.error_count.doc_count,
+        actions: '#',
+      }));
+      setItems(results);
+    }
+  } catch (error) {
+    console.error('Error in handleCustomIndicesTracesRequest:', error);
+    coreRefs.core?.notifications.toasts.addError(error, {
+      title: 'Failed to retrieve custom indices traces',
+      toastLifeTimeMs: 10000,
     });
+  }
 };
 
 export const handleTracesRequest = async (
@@ -101,9 +110,11 @@ export const handleTracesRequest = async (
   items: any,
   setItems: (items: any) => void,
   mode: TraceAnalyticsMode,
+  maxTraces: number = 500,
   dataSourceMDSId?: string,
   sort?: PropertySort,
-  isUnderOneHour?: boolean
+  isUnderOneHour?: boolean,
+  setUniqueTraces?: (count: number) => void
 ) => {
   const binarySearch = (arr: number[], target: number) => {
     if (!arr) return Number.NaN;
@@ -121,14 +132,14 @@ export const handleTracesRequest = async (
   const responsePromise = handleDslRequest(
     http,
     DSL,
-    getTracesQuery(mode, undefined, sort, isUnderOneHour),
+    getTracesQuery(mode, undefined, maxTraces, sort, isUnderOneHour),
     mode,
     dataSourceMDSId
   );
 
   // percentile should only be affected by timefilter
   const percentileRangesPromise =
-    mode === 'data_prepper' || mode === 'custom_data_prepper'
+    mode === 'data_prepper'
       ? handleDslRequest(
           http,
           timeFilterDSL,
@@ -144,32 +155,36 @@ export const handleTracesRequest = async (
           });
           return map;
         })
-      : Promise.reject('Only data_prepper mode supports percentile');
+      : Promise.resolve({});
 
-  return Promise.allSettled([responsePromise, percentileRangesPromise])
+  const promises = [responsePromise, percentileRangesPromise];
+
+  return Promise.allSettled(promises)
     .then(([responseResult, percentileRangesResult]) => {
-      if (responseResult.status === 'rejected') return Promise.reject(responseResult.reason);
+      if (responseResult.status === 'rejected') {
+        setItems([]);
+        return;
+      }
+
       const percentileRanges =
         percentileRangesResult.status === 'fulfilled' ? percentileRangesResult.value : {};
       const response = responseResult.value;
 
-      if ((response.statusCode && response.statusCode >= 400) || response.error) {
-        return Promise.reject(response);
+      if (setUniqueTraces) {
+        const uniqueTraces = response?.aggregations?.unique_traces?.value ?? 0;
+        setUniqueTraces(uniqueTraces);
       }
 
       if (
-        !response ||
-        !response.aggregations ||
-        !response.aggregations.traces ||
-        !response.aggregations.traces.buckets ||
+        !response?.aggregations?.traces?.buckets ||
         response.aggregations.traces.buckets.length === 0
       ) {
         setItems([]);
-        return [];
+        return;
       }
 
-      return response.aggregations.traces.buckets.map((bucket: any) => {
-        if (mode === 'data_prepper' || mode === 'custom_data_prepper') {
+      const newItems = response.aggregations.traces.buckets.map((bucket: any) => {
+        if (mode === 'data_prepper') {
           return {
             trace_id: bucket.key,
             trace_group: bucket.trace_group.buckets[0]?.key,
@@ -191,8 +206,6 @@ export const handleTracesRequest = async (
           actions: '#',
         };
       });
-    })
-    .then((newItems) => {
       setItems(newItems);
     })
     .catch((error) => {
@@ -377,10 +390,6 @@ export const handlePayloadRequest = (
     })
     .catch((error) => {
       console.error('Error in handlePayloadRequest:', error);
-      coreRefs.core?.notifications.toasts.addError(error, {
-        title: `Failed to retrieve payload for trace ID: ${traceId}`,
-        toastLifeTimeMs: 10000,
-      });
     });
 };
 

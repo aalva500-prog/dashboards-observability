@@ -5,7 +5,7 @@
 /* eslint-disable radix */
 
 import dateMath from '@elastic/datemath';
-import { EuiEmptyPrompt, EuiSmallButtonEmpty, EuiSpacer, EuiText } from '@elastic/eui';
+import { EuiEmptyPrompt, EuiLink, EuiSmallButtonEmpty, EuiSpacer, EuiText } from '@elastic/eui';
 import { SpacerSize } from '@elastic/eui/src/components/spacer/spacer';
 import { isEmpty, round } from 'lodash';
 import React from 'react';
@@ -21,6 +21,8 @@ import {
   TRACE_CUSTOM_SERVICE_INDEX_SETTING,
   TRACE_CUSTOM_SPAN_INDEX_SETTING,
   TRACE_LOGS_FIELD_MAPPNIGS_SETTING,
+  TRACE_SERVICE_MAP_MAX_NODES,
+  TRACE_SERVICE_MAP_MAX_EDGES,
 } from '../../../../../common/constants/trace_analytics';
 import {
   CorrelatedLogsFieldMappings,
@@ -29,6 +31,7 @@ import {
   TraceAnalyticsMode,
 } from '../../../../../common/types/trace_analytics';
 import { uiSettingsService } from '../../../../../common/utils';
+import { coreRefs } from '../../../../framework/core_refs';
 import { FieldCapResponse } from '../../../common/types';
 import { serviceMapColorPalette } from './color_palette';
 import { NANOS_TO_MS, ParsedHit } from './constants';
@@ -37,7 +40,7 @@ import { ServiceObject } from './plots/service_map';
 
 const missingJaegerTracesConfigurationMessage = `The indices required for trace analytics (${JAEGER_INDEX_NAME} and ${JAEGER_SERVICE_INDEX_NAME}) do not exist or you do not have permission to access them.`;
 
-const missingDataPrepperTracesConfigurationMessage = `The indices required for trace analytics (${DATA_PREPPER_INDEX_NAME} and ${DATA_PREPPER_SERVICE_INDEX_NAME}) do not exist or you do not have permission to access them.`;
+const missingCustomDataPrepperTracesConfigurationMessage = `The indices required for trace analytics (${DATA_PREPPER_INDEX_NAME} and ${DATA_PREPPER_SERVICE_INDEX_NAME}) do not exist or you do not have permission to access them. Update the indices for custom source in advanced settings`;
 
 export function PanelTitle({ title, totalItems }: { title: string; totalItems?: number }) {
   return (
@@ -50,7 +53,7 @@ export function PanelTitle({ title, totalItems }: { title: string; totalItems?: 
   );
 }
 
-export function NoMatchMessage(props: { size: SpacerSize }) {
+export function NoMatchMessage(props: { size: SpacerSize; mode?: TraceAnalyticsMode }) {
   return (
     <>
       <EuiSpacer size={props.size} />
@@ -60,6 +63,23 @@ export function NoMatchMessage(props: { size: SpacerSize }) {
           <EuiText size="s">
             No data matches the selected filter. Clear the filter and/or increase the time range to
             see more results.
+            {props.mode === 'data_prepper' && (
+              <>
+                {' '}
+                Configure your custom indexes in{' '}
+                <EuiLink
+                  onClick={() =>
+                    // Ideally we want to use navigateToApp and navigateToURL here, but there are limitations in advanced settings today
+                    // Users cannot access the workspace copy of app settings via SPA redirection
+                    window.location.assign(
+                      coreRefs?.http?.basePath.get() + '/app/settings#Observability'
+                    )
+                  }
+                >
+                  advanced settings
+                </EuiLink>
+              </>
+            )}
           </EuiText>
         }
       />
@@ -72,7 +92,8 @@ export function MissingConfigurationMessage(props: { mode: TraceAnalyticsMode })
   const missingConfigurationBody =
     props.mode === 'jaeger'
       ? missingJaegerTracesConfigurationMessage
-      : missingDataPrepperTracesConfigurationMessage;
+      : missingCustomDataPrepperTracesConfigurationMessage;
+
   return (
     <>
       <EuiEmptyPrompt
@@ -94,9 +115,9 @@ export function MissingConfigurationMessage(props: { mode: TraceAnalyticsMode })
 }
 
 // Processes time (like 'now-5y') to microseconds for jaeger since this is how they store the start time. Otherwise leave it the same.
-export function processTimeStamp(time: string, mode: TraceAnalyticsMode) {
+export function processTimeStamp(time: string, mode: TraceAnalyticsMode, isEndTime = false) {
   if (mode === 'jaeger') {
-    const timeMoment = dateMath.parse(time)!;
+    const timeMoment = isEndTime ? dateMath.parse(time, { roundUp: true })! : dateMath.parse(time)!;
     return timeMoment.unix() * 1000000;
   }
   return time;
@@ -253,11 +274,9 @@ export function getServiceMapGraph({
     const averageLatency = `Average duration: ${
       map[service].latency! >= 0 ? map[service].latency + 'ms' : '-'
     }`;
-
     const errorRate = `Error rate: ${
       map[service].error_rate! >= 0 ? map[service].error_rate + '%' : '-'
     }`;
-
     const throughput =
       'Request rate: ' +
       (map[service].throughput! >= 0 ? `${map[service].throughput}` : '-') +
@@ -468,13 +487,13 @@ export const filtersToDsl = (
       let filterQuery = {};
       let field = filter.field;
       if (field === 'latency') {
-        if (mode === 'data_prepper' || mode === 'custom_data_prepper') {
+        if (mode === 'data_prepper') {
           field = 'traceGroupFields.durationInNanos';
         } else if (mode === 'jaeger') {
           field = 'duration';
         }
       } else if (field === 'error') {
-        if (mode === 'data_prepper' || mode === 'custom_data_prepper') {
+        if (mode === 'data_prepper') {
           field = 'traceGroupFields.statusCode';
         } else if (mode === 'jaeger') {
           field = 'tag.error';
@@ -560,7 +579,10 @@ export const filtersToDsl = (
 
 export const getAttributeFieldNames = (response: FieldCapResponse): string[] => {
   return Object.keys(response.fields).filter(
-    (field) => field.startsWith('resource.attributes') || field.startsWith('span.attributes')
+    (field) =>
+      field.startsWith('resource.attributes') ||
+      field.startsWith('span.attributes') ||
+      field.startsWith('attributes')
   );
 };
 
@@ -584,6 +606,10 @@ export const TraceSettings = {
 
   getCustomModeSetting: () => uiSettingsService.get(TRACE_CUSTOM_MODE_DEFAULT_SETTING) || false,
 
+  getServiceMapMaxNodes: () => uiSettingsService.get(TRACE_SERVICE_MAP_MAX_NODES),
+
+  getServiceMapMaxEdges: () => uiSettingsService.get(TRACE_SERVICE_MAP_MAX_EDGES),
+
   setCustomSpanIndex: (value: string) =>
     uiSettingsService.set(TRACE_CUSTOM_SPAN_INDEX_SETTING, value),
 
@@ -598,14 +624,18 @@ export const TraceSettings = {
 
   setCustomModeSetting: (value: boolean) =>
     uiSettingsService.set(TRACE_CUSTOM_MODE_DEFAULT_SETTING, value),
+
+  setServiceMapMaxNodes: (value: number) =>
+    uiSettingsService.set(TRACE_SERVICE_MAP_MAX_NODES, value),
+
+  setServiceMapMaxEdges: (value: number) =>
+    uiSettingsService.set(TRACE_SERVICE_MAP_MAX_EDGES, value),
 };
 
 export const getSpanIndices = (mode: TraceAnalyticsMode) => {
   switch (mode) {
-    case 'custom_data_prepper':
-      return TraceSettings.getCustomSpanIndex();
     case 'data_prepper':
-      return DATA_PREPPER_INDEX_NAME;
+      return TraceSettings.getCustomSpanIndex();
     case 'jaeger':
     default:
       return JAEGER_INDEX_NAME;
@@ -614,10 +644,8 @@ export const getSpanIndices = (mode: TraceAnalyticsMode) => {
 
 export const getServiceIndices = (mode: TraceAnalyticsMode) => {
   switch (mode) {
-    case 'custom_data_prepper':
-      return TraceSettings.getCustomServiceIndex();
     case 'data_prepper':
-      return DATA_PREPPER_SERVICE_INDEX_NAME;
+      return TraceSettings.getCustomServiceIndex();
     case 'jaeger':
     default:
       return JAEGER_SERVICE_INDEX_NAME;
@@ -676,4 +704,13 @@ export const parseHits = (payloadData: string): ParsedHit[] => {
     console.error('Error processing payloadData:', error);
     return [];
   }
+};
+
+export const isUnderOneHourRange = (startTime: string, endTime: string): boolean => {
+  const start = dateMath.parse(startTime);
+  const end = dateMath.parse(endTime, { roundUp: true });
+
+  if (!start || !end) return false;
+
+  return end.diff(start, 'hours')! < 1;
 };
